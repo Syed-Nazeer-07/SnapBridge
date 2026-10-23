@@ -16,7 +16,8 @@ try {
   let page = await app.firstWindow();
   page.on('pageerror', e => errors.push(e.message));
   await page.waitForFunction(() => !!window.snapflow);
-  await page.locator('#expand').click();
+  await page.locator('#onboarding').waitFor({state:'visible'});
+  await page.locator('#finish-setup').click();
   await page.locator('#empty').waitFor({ state: 'visible' });
   // A real visible desktop target; desktopCapturer must acquire its pixels through X11.
   await app.evaluate(async ({ BrowserWindow }) => {
@@ -29,8 +30,9 @@ try {
     await page.evaluate(() => window.snapflow.capture());
     const overlay = await waitFor(async () => { for (const win of app.windows()) if (win.url().endsWith('capture.html')) return win; });
     await overlay.locator('#screen').evaluate(image => image.decode());
-    await overlay.mouse.move(x, y); await overlay.mouse.down(); await overlay.mouse.move(x + width, y + height, { steps: 6 }); await overlay.mouse.up();
-    await overlay.locator('#confirm').click();
+    const captureMode=(await page.evaluate(() => window.snapflow.state())).settings.captureMode;
+    await overlay.mouse.move(x, y); await overlay.mouse.down(); await overlay.mouse.move(x + width, y + height, { steps: 6 }); await overlay.mouse.up().catch(e => { if(!/has been closed/.test(e.message))throw e; });
+    if(captureMode==='adjust')await overlay.locator('#confirm').click();
     await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).images.length === before + 1);
     return (await page.evaluate(() => window.snapflow.state())).images.at(-1);
   }
@@ -65,7 +67,7 @@ try {
   socket.on('message', raw => {
     const msg = JSON.parse(String(raw));
     if (msg.type === 'ready') socket.send(JSON.stringify({ type: 'tabs', tabs: [{ id: 42, provider: 'ChatGPT', title: 'Bridge test', url: 'https://chatgpt.com/c/test' }] }));
-    if (msg.type === 'send') { jobs++; assert.equal(msg.images.length, 2); assert.equal(msg.prompt, 'Explain both captures'); socket.send(JSON.stringify(mode === 'fail' ? { type: 'result', jobId: msg.jobId, ok: false, error: 'Upload rejected by test provider. Queue retained.' } : { type: 'result', jobId: msg.jobId, ok: true, evidence: 'Test bridge acknowledged submission.' })); }
+    if (msg.type === 'prepare') { jobs++; assert.equal(msg.images.length, 2); assert.equal(msg.prompt, 'Explain both captures'); socket.send(JSON.stringify(mode === 'fail' ? { type: 'result', jobId: msg.jobId, ok: false, error: 'Upload rejected by test provider. Queue retained.' } : { type: 'result', jobId: msg.jobId, ok: true, outcome: 'prepared', evidence: 'Test bridge acknowledged submission.' })); }
   });
   await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
   socket.send(JSON.stringify({ type: 'pair', code }));
@@ -89,11 +91,16 @@ try {
   assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), 'Manual fallback prompt');
   assert.equal(images.length, 2, 'Manual fallback preserves queue');
   mode = 'success'; await page.locator('#send').click();
-  await waitFor(async () => !(await page.evaluate(() => window.snapflow.state())).images.length);
-  await waitFor(async () => (await page.locator('#prompt').inputValue()) === '');
-  assert.equal(jobs, 2);
-  // Capture again, restart, verify retained original rather than a fake renderer-only queue.
-  await capture(100, 300, 320, 180);
+  await waitFor(async () => !!(await page.evaluate(() => window.snapflow.state())).prepared);
+  assert.equal((await page.evaluate(() => window.snapflow.state())).images.length,2,'Preparing retains original screenshots');
+  assert.equal(await page.locator('#prompt').inputValue(),'Explain both captures','Preparing retains prompt');
+  await page.locator('#send').click(); await page.waitForTimeout(200); assert.equal(jobs,2,'Same prepared batch is not uploaded twice');
+  await page.locator('#settings-toggle').click(); await page.locator('#capture-mode').selectOption('adjust'); await page.locator('#save-settings').click(); await page.locator('#settings-close').click();
+  await capture(100,300,320,180);
+  assert.equal((await page.evaluate(() => window.snapflow.state())).images.length,3);
+  page.once('dialog',dialog=>dialog.accept()); await page.locator('#clear-prepared').click();
+  await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).images.length===1);
+  assert.equal(await page.locator('#prompt').inputValue(),'','Explicit clear removes the prepared prompt');
   const retained = (await page.evaluate(() => window.snapflow.state())).images[0].id;
   socket.close(); socket = undefined;
   await app.close(); app = await launch(); page = await app.firstWindow();
@@ -102,8 +109,8 @@ try {
   await page.locator('#settings-toggle').click();
   await page.locator('#shortcut').focus(); await page.keyboard.press('Control+Alt+K'); await page.locator('#save-settings').click();
   await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).settings.shortcut === 'Control+Alt+K');
-  await page.locator('#settings-close').click(); await page.locator('#expand').click();
+  await page.locator('#settings-close').click(); if(await page.locator('#expand').getAttribute('aria-expanded')==='false')await page.locator('#expand').click();
   await mkdir('.test-results', { recursive: true }); await page.screenshot({ path: '.test-results/desktop.png' });
   assert.deepEqual(errors, []);
-  console.log('PASS: real region capture + pixel/size check; cancel; preview; drag and button reorder; delete; manual export + clipboard; authenticated bridge; failed-send retention; confirmed-send clearing; prompt retention; restart persistence; configurable shortcut.');
+  console.log('PASS: real region capture + pixel/size check; cancel; preview; drag and button reorder; delete; manual export + clipboard; authenticated bridge; failed-send retention; prepared-batch clearing; prompt retention; idempotent preparation; new captures preserved; instant and adjust modes; onboarding; restart persistence; configurable shortcut.');
 } finally { socket?.terminate(); if (app) await app.close(); await rm(data, { recursive: true, force: true }); }

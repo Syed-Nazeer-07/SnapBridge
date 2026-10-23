@@ -19,7 +19,15 @@ export async function until<T>(get: () => T | null | false | undefined, timeout:
   throw new Error(message);
 }
 const first = <T extends HTMLElement>(selectors: string) => [...document.querySelectorAll<T>(selectors)].find(visible) || null;
-const queryInput = () => [...document.querySelectorAll<HTMLInputElement>('input[type="file"]')].find(input => !input.accept || /image|\.png|\*/i.test(input.accept)) || null;
+const queryInput = () => {
+  const composer = document.querySelector<HTMLElement>('#prompt-textarea, rich-textarea [contenteditable], [contenteditable][role="textbox"]');
+  const root = composer?.closest('form') || composer?.closest('rich-textarea')?.parentElement?.parentElement;
+  const eligible = (inputs: HTMLInputElement[]) => inputs.filter(input => !input.accept || /image|\.png|\*/i.test(input.accept));
+  const scoped = root ? eligible([...root.querySelectorAll<HTMLInputElement>('input[type="file"]')]) : [];
+  if (scoped.length === 1) return scoped[0];
+  const all = eligible([...document.querySelectorAll<HTMLInputElement>('input[type="file"]')]);
+  return all.length === 1 ? all[0] : null;
+};
 const region = (composer: HTMLElement | null) => composer?.closest('form') || composer?.closest('rich-textarea')?.parentElement?.parentElement || composer?.parentElement?.parentElement || null;
 function controlsCount(root: Element | null, selectors: string) { return root ? [...root.querySelectorAll(selectors)].filter(visible).length : 0; }
 function baseFileInput(name: string) {

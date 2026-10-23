@@ -1,7 +1,9 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, globalShortcut, desktopCapturer, screen, ipcMain, dialog, clipboard, safeStorage, shell } from 'electron';
 import path from 'node:path';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, unlink } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { randomBytes, createHash } from 'node:crypto';
+import { SettingsSchema, type PreparedBatch } from '../shared/protocol';
 import { z } from 'zod';
 import { CaptureQueue } from './queue';
 import { BrowserBridge, type Binding } from './bridge';
@@ -13,7 +15,9 @@ let window: BrowserWindow;
 let tray: Tray;
 let bridge: BrowserBridge;
 let queue: CaptureQueue;
-let settings: Settings = { shortcut: 'CommandOrControl+Shift+S', alwaysOnTop: true };
+let settings: Settings = SettingsSchema.parse({ shortcut: 'CommandOrControl+Shift+S', alwaysOnTop: true });
+let prepared: PreparedBatch | null = null;
+const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 let status = 'Ready to capture. Your screenshots stay on this device.';
 let error = false;
 let busy = false;
@@ -23,7 +27,7 @@ let overlays = new Map<number, { window: BrowserWindow; image: Electron.NativeIm
 let mutation = Promise.resolve();
 const serial = <T>(fn: () => Promise<T>): Promise<T> => { const next = mutation.then(fn); mutation = next.then(() => {}, () => {}); return next; };
 const dataPath = (...parts: string[]) => path.join(app.getPath('userData'), ...parts);
-function state(): AppState { return { images: queue.images, tabs: bridge.tabs, connected: bridge.connected, pairingCode: bridge.code, settings, busy, status, error, bytes: queue.bytes }; }
+function state(): AppState { return { images: queue.images, tabs: bridge.tabs, connected: bridge.connected, pairingCode: bridge.code, prepared, settings, busy, status, error, bytes: queue.bytes }; }
 function publish(message?: string, isError = false) { if (message) { status = message; error = isError; } if (window && !window.isDestroyed()) window.webContents.send('snapflow:state', state()); }
 function show() { if (window) { window.show(); window.focus(); } }
 function secure(win: BrowserWindow) {
@@ -95,25 +99,35 @@ function registerIPC() {
   handle('clear', () => serial(async () => { requireMutable(); await queue.remove(queue.images.map(i => i.id)); publish('Queue cleared.'); }));
   handle('reorder', (_event, ids) => serial(async () => { requireMutable(); await queue.reorder(z.array(z.string().uuid()).parse(ids)); publish(); }));
   handle('preview', async (_event, id) => `data:image/png;base64,${(await queue.read(z.string().uuid().parse(id))).toString('base64')}`);
-  handle('send', async (_event, tabId, text) => {
+  handle('prepare', async (_event, tabId, text) => {
     requireMutable();
     const prompt = z.string().max(20_000).parse(text);
     const tab = bridge.tabs.find(t => t.id === z.number().int().parse(tabId));
     if (!tab) throw new Error('Select a connected conversation tab.');
     const items = queue.images;
     if (!items.length && !prompt.trim()) throw new Error('Add a capture or a message first.');
-    busy = true; publish('Preparing your captures…');
-    let submitted = false;
+    if (prepared && prepared.url === tab.url && prepared.tabId === tab.id && prepared.promptDigest === digest(prompt) && JSON.stringify(prepared.ids) === JSON.stringify(items.map(i => i.id))) {
+      bridge.focus(tab); publish('This batch is already prepared. Review it in the browser and press Send there.'); return;
+    }
+    busy = true; publish('Preparing the draft in your selected conversation…');
     try {
       const images = [];
       for (const item of items) images.push({ id: item.id, name: item.name, base64: (await queue.read(item.id)).toString('base64') });
-      const evidence = await bridge.send({ tab, images, prompt });
-      submitted = true;
-      await serial(() => queue.remove(items.map(item => item.id)));
-      publish(`Sent and confirmed. ${evidence}`);
-    } catch (e: any) { const failure = submitted ? new Error(`The message was sent, but local queue cleanup failed: ${e.message}. Do not resend this batch.`) : e; publish(failure.message, true); throw failure; }
-    finally { busy = false; publish(); }
+      const evidence = await bridge.prepare({ tab, images, prompt });
+      prepared = { ids: items.map(i => i.id), tabId: tab.id, url: tab.url, promptDigest: digest(prompt), time: Date.now() };
+      await writeFile(dataPath('prepared.json.tmp'), JSON.stringify(prepared), { mode: 0o600 });
+      await rename(dataPath('prepared.json.tmp'), dataPath('prepared.json'));
+      publish(`Ready in ${tab.provider}. Review the draft and press Send in your browser. Your captures are kept here. ${evidence}`);
+    } finally { busy = false; publish(); }
   });
+  handle('clearPrepared', (_event, text) => serial(async () => {
+    requireMutable(); const prompt = z.string().max(20_000).parse(text);
+    if (!prepared) return false;
+    const matches = prepared.promptDigest === digest(prompt);
+    await queue.remove(prepared.ids); prepared = null;
+    await unlink(dataPath('prepared.json')).catch(e => { if (e.code !== 'ENOENT') throw e; });
+    publish('Prepared captures removed from the local queue.'); return matches;
+  }));
   handle('fallback', async (_event, tabId, text) => {
     const prompt = z.string().max(20_000).parse(text);
     const result = await dialog.showOpenDialog(window, { title: 'Export captures for manual attachment', buttonLabel: 'Save captures here', properties: ['openDirectory', 'createDirectory'] });
@@ -129,7 +143,7 @@ function registerIPC() {
     return folder;
   });
   handle('settings', async (_event, value) => {
-    const next = z.object({ shortcut: z.string().min(3).max(80), alwaysOnTop: z.boolean() }).strict().parse(value);
+    const next = SettingsSchema.parse(value);
     if (next.shortcut !== settings.shortcut) {
       let registered = false;
       try { registered = globalShortcut.register(next.shortcut, () => void capture().catch(e => publish(e.message, true))); } catch {}
@@ -149,7 +163,7 @@ function registerIPC() {
   handle('captureSource', event => {
     const item = overlays.get(event.sender.id)!;
     const size = item.image.getSize();
-    return { dataUrl: item.image.toDataURL(), width: size.width, height: size.height, displayId: item.display.id } satisfies CaptureSource;
+    return { dataUrl: item.image.toDataURL(), width: size.width, height: size.height, displayId: item.display.id, captureMode: settings.captureMode } satisfies CaptureSource;
   }, true);
   handle('finishCapture', async (event, value) => {
     const rect = z.object({ x: z.number().min(0), y: z.number().min(0), width: z.number().min(2), height: z.number().min(2) }).strict().parse(value);
@@ -174,10 +188,16 @@ else {
   app.on('window-all-closed', () => {});
   app.whenReady().then(async () => {
     await mkdir(app.getPath('userData'), { recursive: true, mode: 0o700 });
-    try { settings = z.object({ shortcut: z.string().min(3).max(80), alwaysOnTop: z.boolean() }).parse(JSON.parse(await readFile(dataPath('settings.json'), 'utf8'))); } catch {}
+    try { settings = SettingsSchema.parse(JSON.parse(await readFile(dataPath('settings.json'), 'utf8'))); } catch {}
     queue = new CaptureQueue(dataPath('captures'));
     try { await queue.load(); } catch (e: any) { queueHealthy = false; status = e.message; error = true; }
-    bridge = new BrowserBridge(await loadBinding(), bindingFile);
+    try { prepared = z.object({ ids: z.array(z.string().uuid()), tabId: z.number().int(), url: z.string().url(), promptDigest: z.string().regex(/^[a-f0-9]{64}$/), time: z.number() }).parse(JSON.parse(await readFile(dataPath('prepared.json'), 'utf8'))); } catch {}
+    const nativeFile = dataPath('native-bridge.json');
+    let nativeToken: string;
+    try { nativeToken = z.string().regex(/^[a-f0-9]{64}$/).parse(JSON.parse(await readFile(nativeFile, 'utf8')).token); } catch { nativeToken = randomBytes(32).toString('hex'); }
+    await writeFile(nativeFile, JSON.stringify({ token: nativeToken, port: 47831 }), { mode: 0o600 });
+    const nativeConfig = JSON.parse(await readFile(path.join(root, 'dist/native-config.json'), 'utf8')) as { origins: string[] };
+    bridge = new BrowserBridge(await loadBinding(), bindingFile, { token: nativeToken, origins: nativeConfig.origins });
     bridge.on('change', () => publish()); bridge.on('progress', message => publish(message));
     try { await bridge.listen(); } catch (e: any) { status = `Browser bridge could not start (${e.code || e.message}). Close other SnapFlow instances and restart. Local captures still work.`; error = true; }
     registerIPC(); makeWindow();

@@ -1,3 +1,4 @@
+import './native-config.mjs';
 import { build } from 'esbuild';
 import { mkdir, copyFile, cp } from 'node:fs/promises';
 await mkdir('dist/renderer', { recursive: true });

@@ -1,47 +1,89 @@
-name: Build Windows download
-
+name: Build SnapFlow installers
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
-
 permissions:
   contents: read
-
+env:
+  SNAPFLOW_EXTENSION_IDS: ${{ vars.SNAPFLOW_EXTENSION_IDS }}
 jobs:
-  windows:
-    runs-on: windows-latest
-    permissions:
-      contents: write
+  checks:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
       - run: npm ci --no-audit --no-fund
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run dist:win
+      - run: npm run build && npm run typecheck && npm test
+      - run: npm run native:build && npm run test:native
+      - run: npx playwright install --with-deps chromium
+      - run: xvfb-run -a npm run test:desktop
+      - run: xvfb-run -a npm run test:adapters
+      - run: xvfb-run -a npm run test:extension
+  windows:
+    needs: checks
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    env:
+      SNAPFLOW_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build && npm run typecheck && npm test
+      - run: npm run native:build
+      - if: matrix.arch == 'x64'
+        run: npm run test:native
+      - run: npx electron-builder --win nsis --${{ matrix.arch }}
+      - name: Test installed application and native registration
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: ./scripts/test-installer.ps1
+      - name: Package extension for store review
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          Compress-Archive -Path dist/extension/* -DestinationPath "release/SnapFlow-extension-$version.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: SnapFlow-Windows-x64
-          path: release/SnapFlow-*-Windows-x64.zip
+          name: SnapFlow-Windows-${{ matrix.arch }}
+          path: |
+            release/SnapFlow-Setup-*.exe
+            release/SnapFlow-extension-*.zip
           if-no-files-found: error
-      - name: Publish Windows ZIP
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
+  release:
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: SnapFlow-Windows-*
+          path: downloads
+          merge-multiple: true
+      - name: Publish installers
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $archive = Get-Item 'release/SnapFlow-*-Windows-x64.zip'
-          if (@($archive).Count -ne 1) { throw 'Expected exactly one Windows archive.' }
-          gh release view $env:RELEASE_TAG *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:RELEASE_TAG $archive.FullName --clobber
-          } else {
-            gh release create $env:RELEASE_TAG $archive.FullName --title "SnapFlow $env:RELEASE_TAG" --notes 'Extract the ZIP and launch SnapFlow.exe. Load resources/browser-extension as an unpacked Chrome or Edge extension and pair it from desktop Settings. This build is unsigned. Live authenticated website submission and multi-monitor hardware still require manual validation.'
-          }
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub release publication failed.' }
+          gh release create "$RELEASE_TAG" downloads/* --title "SnapFlow $RELEASE_TAG" --notes 'Windows installers: choose arm64 for Windows on ARM (including Apple Silicon Windows VMs), or x64 for Intel/AMD PCs. Light interface, shortcut setup, instant/adjustable capture, and attach-and-prepare without automatic submission. The installer registers Native Messaging with Chrome and Edge. The companion extension is a preview awaiting store publication; Developer mode is still required until store approval. Captures are retained after preparation. Installers are unsigned. Live authenticated website compatibility and ARM hardware execution remain to be validated.'

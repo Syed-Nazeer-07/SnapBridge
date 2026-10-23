@@ -9,7 +9,7 @@ let submitting = false;
 function render() {
   Object.assign(selection.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
   selection.hidden = false;
-  actions.hidden = rect.width < 2 || rect.height < 2 || !!mode;
+  actions.hidden = source?.captureMode === 'instant' || rect.width < 2 || rect.height < 2 || !!mode;
   document.getElementById('dimensions')!.textContent = `${Math.round(rect.width * (source?.width || innerWidth) / innerWidth)} × ${Math.round(rect.height * (source?.height || innerHeight) / innerHeight)} px`;
 }
 document.addEventListener('pointerdown', event => {
@@ -27,7 +27,7 @@ document.addEventListener('pointermove', event => {
   if (mode === 'resize') { rect.width = Math.max(2, Math.min(innerWidth - rect.x, start.rect.width + x - start.x)); rect.height = Math.max(2, Math.min(innerHeight - rect.y, start.rect.height + y - start.y)); }
   render();
 });
-document.addEventListener('pointerup', () => { mode = null; render(); });
+document.addEventListener('pointerup', () => { if (!mode) return; mode = null; render(); if (source?.captureMode === 'instant' && rect.width >= 2 && rect.height >= 2) void finish(); });
 async function finish() {
   if (rect.width < 2 || rect.height < 2 || submitting) return;
   submitting = true; (document.getElementById('confirm') as HTMLButtonElement).disabled = true;
@@ -36,4 +36,4 @@ async function finish() {
 document.getElementById('confirm')!.addEventListener('click', () => void finish());
 document.getElementById('cancel')!.addEventListener('click', () => void window.snapflow.cancelCapture());
 document.addEventListener('keydown', event => { if (event.key === 'Escape') void window.snapflow.cancelCapture(); if (event.key === 'Enter') void finish(); });
-void window.snapflow.captureSource().then(value => { source = value; (document.getElementById('screen') as HTMLImageElement).src = value.dataUrl; }).catch(e => { document.getElementById('hint')!.textContent = `Capture failed: ${e.message}. Press Escape to cancel.`; });
+void window.snapflow.captureSource().then(value => { source = value; document.getElementById('hint')!.textContent = value.captureMode === 'instant' ? 'Drag to select · Release to capture · Esc to cancel' : 'Drag to select · Move or resize · Enter to capture · Esc to cancel'; (document.getElementById('screen') as HTMLImageElement).src = value.dataUrl; }).catch(e => { document.getElementById('hint')!.textContent = `Capture failed: ${e.message}. Press Escape to cancel.`; });

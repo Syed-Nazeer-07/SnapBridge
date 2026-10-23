@@ -76,30 +76,29 @@ try {
     await load(provider);
     const composer = page.locator('textarea,[contenteditable]');
     await composer.fill('Do not overwrite my draft');
-    await assert.rejects(bridge.send(job()), /unsent draft/);
+    await assert.rejects(bridge.prepare(job()), /unsent draft/);
     assert.equal(await composer.innerText().catch(() => ''), provider === 'Gemini' ? 'Do not overwrite my draft' : '');
     if (provider === 'ChatGPT') assert.equal(await composer.inputValue(), 'Do not overwrite my draft');
     await composer.fill('');
-    const evidence = await bridge.send(job()); assert.match(evidence, /new user turn/);
-    const submissions = await page.evaluate(() => window.fixture.submissions);
-    assert.equal(submissions.length, 1); assert.equal(submissions[0].text, 'Compare these two captures.'); assert.equal(submissions[0].files.length, 2);
-    for (const file of submissions[0].files) assert.deepEqual(Buffer.from(file.bytes), png);
-    // Replaying the same content-script job is refused before any DOM mutation.
-    const duplicateJob = { ...job(), type: 'send', jobId: randomUUID(), images: [], prompt: 'A single text-only turn.' };
-    const first = await chrome.tabs.sendMessage(31, { type: 'snapflow:send', job: duplicateJob }); assert.equal(first.ok, true);
-    const second = await chrome.tabs.sendMessage(31, { type: 'snapflow:send', job: duplicateJob }); assert.equal(second.ok, false); assert.match(second.error, /Duplicate/);
-    assert.equal(await page.evaluate(() => window.fixture.submissions.length), 2);
-    await page.evaluate(() => { window.fixture.failUpload = true; });
-    await assert.rejects(bridge.send(job()), /attachment error/);
-    assert.equal(await page.evaluate(() => window.fixture.submissions.length), 2, 'Failed upload never submitted');
-    await load(provider); await page.evaluate(() => { window.fixture.failSubmit = true; });
-    await assert.rejects(bridge.send(job()), /submission error/);
-    assert.equal(await page.evaluate(() => window.fixture.submissions.length), 1, 'An optimistic user turn followed by a rejection is not success and is never automatically retried');
-    console.log(`PASS ${provider}: real DOM multi-file upload with exact original bytes; prompt insertion; upload readiness; single-click confirmation; existing-draft protection; duplicate refusal; text-only send; upload-error retention; optimistic-turn rejection.`);
+    const evidence = await bridge.prepare(job()); assert.match(evidence,/Nothing was submitted/);
+    assert.equal(await page.evaluate(()=>window.fixture.submissions.length),0,'Preparation must never submit');
+    const files=await page.locator('input[type=file]').evaluate(async input=>Promise.all([...input.files].map(async f=>[...new Uint8Array(await f.arrayBuffer())])));
+    for(const file of files)assert.deepEqual(Buffer.from(file),png);
+    assert.equal(await composer.evaluate(el=>el.value??el.innerText),'Compare these two captures.');
+    await assert.rejects(bridge.prepare(job()),/unsent draft/);
+    await page.locator('#send').click(); await page.waitForFunction(()=>window.fixture.submissions.length===1);
+    const duplicateJob = { ...job(), type:'prepare', jobId:randomUUID(), images:[], prompt:'Text-only draft.' };
+    const first=await chrome.tabs.sendMessage(31,{type:'snapflow:prepare',job:duplicateJob});assert.equal(first.ok,true);
+    const second=await chrome.tabs.sendMessage(31,{type:'snapflow:prepare',job:duplicateJob});assert.equal(second.ok,false);assert.match(second.error,/Duplicate/);
+    assert.equal(await page.evaluate(()=>window.fixture.submissions.length),1,'Text preparation also never submits');
+    await load(provider); await page.evaluate(()=>{window.fixture.failUpload=true;});
+    await assert.rejects(bridge.prepare(job()),/attachment error/);
+    assert.equal(await page.evaluate(()=>window.fixture.submissions.length),0);
+    console.log(`PASS ${provider}: real DOM multi-file upload with exact original bytes; prompt insertion; upload readiness; no automatic submission; existing-draft protection; duplicate refusal; text-only draft; upload-error retention.`);
   }
   // Background rejects a target that navigated after selection and refuses replayed job IDs.
   const stale = job(); await page.goto('https://gemini.google.com/app/different');
-  await assert.rejects(bridge.send(stale), /navigated/);
+  await assert.rejects(bridge.prepare(stale), /navigated/);
   const replayId = randomUUID(); await chrome.storage.session.set({ [`job:${replayId}`]: { state: 'confirmed' } });
   // Capture the authenticated socket's outbound result for a replay of a previously persisted job ID.
   let replayResult;
@@ -108,7 +107,7 @@ try {
   const originalSend = socket.send.bind(socket);
   socket.send = (data, ...args) => { const message = JSON.parse(String(data)); if (message.type === 'result' && message.jobId === replayId) replayResult = message; return originalSend(data, ...args); };
   // Deliver through the browser socket's incoming WebSocket event path.
-  socket.emit('message', Buffer.from(JSON.stringify({ ...stale, type: 'send', jobId: replayId })), false);
+  socket.emit('message', Buffer.from(JSON.stringify({ ...stale, type: 'prepare', jobId: replayId })), false);
   await waitFor(() => replayResult); assert.equal(replayResult.ok, false); assert.match(replayResult.error, /Duplicate/);
   assert.ok(messages.some(m => /uploading/.test(m.message)), 'Upload progress reported');
   console.log('PASS background script: popup pairing; authenticated WebSocket; provider tab discovery; dispatch to real content code; navigation refusal; session-persisted replay protection. Chrome APIs were simulated; unpacked MV3 loading and live authenticated sites were not tested.');

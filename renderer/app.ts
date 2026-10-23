@@ -16,18 +16,23 @@ try { const saved = JSON.parse(localStorage.getItem('snapflow-target') || 'null'
 target.addEventListener('change', () => { const tab = state.tabs.find(t => String(t.id) === target.value); selectedTarget = tab ? { id: tab.id, url: tab.url } : null; localStorage.setItem('snapflow-target', JSON.stringify(selectedTarget)); updateSend(); });
 function report(e: unknown) { const message = e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': Error: /, '') : String(e); $('notice').textContent = message; $('notice').classList.add('error'); $('settings-status').textContent = message; }
 const action = (fn: () => Promise<unknown>) => () => { void fn().catch(report); };
-function setExpanded(value: boolean) { expanded = value; $('panel').hidden = !expanded || settingsOpen; $('expand').setAttribute('aria-expanded', String(expanded)); $('chevron').textContent = expanded ? '▴' : '▾'; void api.resize(expanded || settingsOpen); }
+function setExpanded(value: boolean) { expanded = value; $('panel').hidden = !expanded || settingsOpen || !state?.settings.setupComplete; $('expand').setAttribute('aria-expanded', String(expanded)); $('chevron').textContent = expanded ? '▴' : '▾'; void api.resize(expanded || settingsOpen); }
 function showSettings(value: boolean) {
+  if (!state?.settings.setupComplete) return;
   settingsOpen = value; $('settings').hidden = !value; $('panel').hidden = value || !expanded;
-  if (value) { $<HTMLInputElement>('shortcut').value = state.settings.shortcut; $<HTMLInputElement>('always-on-top').checked = state.settings.alwaysOnTop; }
+  if (value) { $<HTMLInputElement>('shortcut').value = state.settings.shortcut; $<HTMLInputElement>('always-on-top').checked = state.settings.alwaysOnTop; $<HTMLSelectElement>('capture-mode').value = state.settings.captureMode; }
   void api.resize(value || expanded);
   if (value) void api.extensionFolder().then(folder => { $<HTMLInputElement>('extension-folder').value = folder; });
 }
-function updateSend() { $<HTMLButtonElement>('send').disabled = !state || state.busy || !state.connected || !target.value || (!state.images.length && !prompt.value.trim()); }
+function updateSend() { $<HTMLButtonElement>('send').disabled = !state || !state.settings.setupComplete || state.busy || !state.connected || !target.value || (!state.images.length && !prompt.value.trim()); }
 function button(label: string, title: string, click: () => void) { const b = document.createElement('button'); b.textContent = label; b.title = title; b.setAttribute('aria-label', title); b.addEventListener('click', click); return b; }
 function render(next: AppState) {
+  if (next.images.length > (state?.images.length || 0)) { settingsOpen = false; $('settings').hidden = true; setExpanded(true); }
+  if (!next.settings.setupComplete) { $('onboarding').hidden = false; $('panel').hidden = true; $('settings').hidden = true; void api.resize(true); if (!state) $<HTMLInputElement>('setup-shortcut').value = next.settings.shortcut; }
+  else if (!state?.settings.setupComplete) { $('onboarding').hidden = true; setExpanded(true); }
   if (next.error && next.status !== state?.status && !settingsOpen) setExpanded(true);
   state = next;
+  $('panel').hidden = !state.settings.setupComplete || !expanded || settingsOpen;
   $('count').textContent = String(state.images.length); $('panel-count').textContent = String(state.images.length);
   $('notice').textContent = state.status; $('notice').classList.toggle('error', state.error);
   $('settings-status').textContent = state.error ? state.status : '';
@@ -41,7 +46,9 @@ function render(next: AppState) {
   $<HTMLButtonElement>('unpair').disabled = state.busy;
   $<HTMLButtonElement>('fallback').disabled = state.busy || !state.images.length;
   prompt.disabled = state.busy; target.disabled = state.busy;
-  $('send-label').textContent = state.busy ? 'Sending…' : 'Send to AI';
+  $('send-label').textContent = state.busy ? 'Preparing…' : 'Prepare draft';
+  $('prepared-actions').hidden = !state.prepared;
+  $<HTMLButtonElement>('clear-prepared').disabled = state.busy;
   const tabsKey = JSON.stringify([state.connected, state.tabs]);
   if (tabsKey !== lastTabs) {
     const previous = selectedTarget; target.replaceChildren();
@@ -76,8 +83,7 @@ function render(next: AppState) {
 async function send() {
   if ($<HTMLButtonElement>('send').disabled) return;
   setExpanded(true);
-  await api.send(Number(target.value), prompt.value);
-  prompt.value = ''; localStorage.removeItem('snapflow-prompt'); updateSend();
+  await api.prepare(Number(target.value), prompt.value); updateSend();
 }
 $('capture').addEventListener('click', action(() => api.capture()));
 $('empty-capture').addEventListener('click', action(() => api.capture()));
@@ -93,13 +99,22 @@ $('pair-code').addEventListener('click', event => (event.target as HTMLInputElem
 $('reveal-extension').addEventListener('click', action(() => api.revealExtension()));
 $('extension-folder').addEventListener('click', event => (event.target as HTMLInputElement).select());
 $('unpair').addEventListener('click', action(() => api.unpair()));
-$('save-settings').addEventListener('click', action(async () => { await api.settings({ shortcut: $<HTMLInputElement>('shortcut').value, alwaysOnTop: $<HTMLInputElement>('always-on-top').checked }); $('settings-status').textContent = 'Preferences saved.'; }));
-$('shortcut').addEventListener('keydown', event => {
+$('save-settings').addEventListener('click', action(async () => { await api.settings({ shortcut: $<HTMLInputElement>('shortcut').value, alwaysOnTop: $<HTMLInputElement>('always-on-top').checked, captureMode: $<HTMLSelectElement>('capture-mode').value as 'instant' | 'adjust', setupComplete: true }); $('settings-status').textContent = 'Preferences saved.'; }));
+for (const id of ['shortcut', 'setup-shortcut']) $(id).addEventListener('keydown', event => {
+  if (event.key === 'Tab') return;
   event.preventDefault(); if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) return;
-  if (!event.ctrlKey && !event.altKey && !event.metaKey) return;
-  const key = event.code === 'Space' ? 'Space' : event.key.length === 1 ? event.key.toUpperCase() : event.key;
-  $<HTMLInputElement>('shortcut').value = [event.ctrlKey ? 'Control' : '', event.metaKey ? 'Super' : '', event.altKey ? 'Alt' : '', event.shiftKey ? 'Shift' : '', key].filter(Boolean).join('+');
+  if (!event.ctrlKey && !event.altKey && !event.metaKey && !/^F([1-9]|1[0-9]|2[0-4])$/.test(event.key)) return;
+  const key = event.code === 'Space' ? 'Space' : /^Key[A-Z]$/.test(event.code) ? event.code.slice(3) : /^Digit[0-9]$/.test(event.code) ? event.code.slice(5) : event.key.length === 1 ? event.key.toUpperCase() : event.key;
+  $<HTMLInputElement>(id).value = [event.ctrlKey ? 'Control' : '', event.metaKey ? 'Super' : '', event.altKey ? 'Alt' : '', event.shiftKey ? 'Shift' : '', key].filter(Boolean).join('+');
 });
+$('finish-setup').addEventListener('click', action(async () => {
+  try { await api.settings({ shortcut: $<HTMLInputElement>('setup-shortcut').value, alwaysOnTop: true, captureMode: (document.querySelector<HTMLInputElement>('input[name="setup-mode"]:checked')!.value as 'instant' | 'adjust'), setupComplete: true }); }
+  catch (e: any) { $('setup-status').textContent = e.message; throw e; }
+}));
+$('clear-prepared').addEventListener('click', action(async () => {
+  if (!confirm('Remove the prepared batch from this device? Check your browser draft first.')) return;
+  if (await api.clearPrepared(prompt.value)) { prompt.value = ''; localStorage.removeItem('snapflow-prompt'); } updateSend();
+}));
 $('preview-close').addEventListener('click', () => $<HTMLDialogElement>('preview').close());
 $<HTMLDialogElement>('preview').addEventListener('close', () => { $<HTMLImageElement>('preview-image').src = ''; });
 document.addEventListener('keydown', event => { if (event.ctrlKey && event.key === 'Enter') { event.preventDefault(); void send().catch(report); } if (event.key === 'Escape') showSettings(false); });

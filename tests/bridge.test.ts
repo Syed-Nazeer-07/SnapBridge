@@ -42,19 +42,19 @@ describe('authenticated loopback browser bridge', () => {
     other.ws.send(JSON.stringify({ type: 'auth', token: c.token })); await other.waitFor('error');
   });
   it('rejects false success without submission evidence and prevents concurrent sends', async () => {
-    await start(); const c = await paired(); const pending = bridge.send({ tab, images: [], prompt: 'hello' });
+    await start(); const c = await paired(); const pending = bridge.prepare({ tab, images: [], prompt: 'hello' });
     const failure = expect(pending).rejects.toThrow('could not be confirmed');
-    await expect(bridge.send({ tab, images: [], prompt: 'duplicate' })).rejects.toThrow('already running');
-    const job = await c.waitFor('send'); c.ws.send(JSON.stringify({ type: 'result', jobId: job.jobId, ok: true })); await failure;
+    await expect(bridge.prepare({ tab, images: [], prompt: 'duplicate' })).rejects.toThrow('already running');
+    const job = await c.waitFor('prepare'); c.ws.send(JSON.stringify({ type: 'result', jobId: job.jobId, ok: true })); await failure;
   });
   it('matches results to job ID and reports verified success', async () => {
-    await start(); const c = await paired(); const pending = bridge.send({ tab, images: [], prompt: 'hello' }); const job = await c.waitFor('send');
-    c.ws.send(JSON.stringify({ type: 'result', jobId: randomUUID(), ok: true, evidence: 'unrelated' }));
-    c.ws.send(JSON.stringify({ type: 'result', jobId: job.jobId, ok: true, evidence: 'New user turn with expected images.' }));
+    await start(); const c = await paired(); const pending = bridge.prepare({ tab, images: [], prompt: 'hello' }); const job = await c.waitFor('prepare');
+    c.ws.send(JSON.stringify({ type: 'result', jobId: randomUUID(), ok: true, outcome: 'prepared', evidence: 'unrelated' }));
+    c.ws.send(JSON.stringify({ type: 'result', jobId: job.jobId, ok: true, outcome: 'prepared', evidence: 'New user turn with expected images.' }));
     await expect(pending).resolves.toMatch('expected images');
   });
   it('fails an in-flight send on disconnect rather than claiming success', async () => {
-    await start(); const c = await paired(); const pending = bridge.send({ tab, images: [], prompt: 'hello' });
+    await start(); const c = await paired(); const pending = bridge.prepare({ tab, images: [], prompt: 'hello' });
     const failure = expect(pending).rejects.toThrow('Check the conversation'); c.ws.close(); await failure;
   });
 });

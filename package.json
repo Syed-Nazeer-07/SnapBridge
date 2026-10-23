@@ -1,8 +1,8 @@
 {
   "name": "snapflow",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Capture locally. Send to your existing AI conversation.",
+  "description": "Prepare screenshots in your existing AI conversation. You press Send.",
   "author": "SnapFlow",
   "license": "MIT",
   "main": "dist/desktop/main.cjs",
@@ -13,9 +13,12 @@
     "test": "vitest run",
     "test:desktop": "node scripts/test-desktop.mjs",
     "test:extension": "node scripts/test-extension.mjs",
-    "dist:win": "npm run build && electron-builder --win zip --x64",
+    "dist:win": "npm run build && electron-builder --win nsis --x64",
     "postinstall": "node scripts/install-electron.mjs",
-    "test:adapters": "node scripts/test-adapters.mjs"
+    "test:adapters": "node scripts/test-adapters.mjs",
+    "dist:win:arm64": "npm run build && electron-builder --win nsis --arm64",
+    "test:native": "node scripts/test-native.mjs",
+    "native:build": "node scripts/build-native.mjs"
   },
   "dependencies": {
     "ws": "8.22.0",
@@ -36,16 +39,18 @@
     "appId": "app.snapflow.desktop",
     "productName": "SnapFlow",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "installer"
     },
     "files": [
       "dist/desktop/**",
       "dist/renderer/**",
       "assets/**",
-      "package.json"
+      "package.json",
+      "dist/native-config.json"
     ],
     "win": {
-      "target": "zip",
+      "target": "nsis",
       "icon": "assets/icon.ico",
       "signExecutable": false
     },
@@ -55,7 +60,18 @@
         "from": "dist/extension",
         "to": "browser-extension"
       }
-    ]
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "installer/native-host.nsh",
+      "artifactName": "SnapFlow-Setup-${version}-Windows-${arch}.${ext}"
+    },
+    "afterPack": "scripts/package-native.mjs"
   },
   "engines": {
     "node": ">=24.5.0"

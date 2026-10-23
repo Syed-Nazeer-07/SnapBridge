@@ -1,13 +1,42 @@
 {
   "manifest_version": 3,
   "name": "SnapFlow Companion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minimum_chrome_version": "116",
-  "description": "Send local SnapFlow captures to the conversation you choose.",
-  "permissions": ["tabs", "storage", "scripting", "alarms"],
-  "host_permissions": ["https://chatgpt.com/*", "https://gemini.google.com/*", "http://127.0.0.1:47831/*"],
-  "background": {"service_worker": "background.js"},
-  "action": {"default_popup": "popup.html", "default_title": "SnapFlow"},
-  "content_scripts": [{"matches": ["https://chatgpt.com/*", "https://gemini.google.com/*"], "js": ["content.js"], "run_at": "document_idle"}],
-  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src ws://127.0.0.1:47831"}
+  "description": "Prepare screenshots and a message in your selected AI conversation. You press Send.",
+  "permissions": [
+    "tabs",
+    "storage",
+    "scripting",
+    "alarms",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*",
+    "http://127.0.0.1:47831/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SnapFlow"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src ws://127.0.0.1:47831"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtLsoLLYZrAAT61jyS4zZszVBMJiHQzA3uYr5lhjEODyV6g8dIWu9Yl48FDTU/ejrkBcSaNTb5ZUsRadeGsqLhFoIe2hsLpQe/YVYlMJ6NdnbdQTG11TwBge5kr3dCobxGTqZKFkmKpgikNYKRIeGRtgVCMtm+ZPt28zEhFJlM+TS/mn6D9gtsUsE0eseVeUBKCTvKovrDb10x8p/x/8geSak+4bqQGuVhr1sbMyXs/kGotHQqjHpSqecrYn27Hae9aM94ljXDdx0//v5yGhHAuvOTRPk+OPpigMEjWXHZxDFgwjYbOIjlTg0gAf2x8kIQXSEX3vuJsCpK7XeWgx2twIDAQAB"
 }

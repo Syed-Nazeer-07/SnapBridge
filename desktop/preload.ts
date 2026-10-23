@@ -4,7 +4,7 @@ const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`snapflo
 const api: SnapflowAPI = {
   state: () => invoke('state'), capture: () => invoke('capture'), remove: id => invoke('remove', id),
   reorder: ids => invoke('reorder', ids), clear: () => invoke('clear'), preview: id => invoke('preview', id),
-  send: (tabId, prompt) => invoke('send', tabId, prompt), fallback: (tabId, prompt) => invoke('fallback', tabId, prompt),
+  prepare: (tabId, prompt) => invoke('prepare', tabId, prompt), clearPrepared: prompt => invoke('clearPrepared', prompt), fallback: (tabId, prompt) => invoke('fallback', tabId, prompt),
   settings: settings => invoke('settings', settings), hide: () => invoke('hide'), quit: () => invoke('quit'),
   resize: expanded => invoke('resize', expanded), unpair: () => invoke('unpair'),
   extensionFolder: () => invoke('extensionFolder'), revealExtension: () => invoke('revealExtension'),
