@@ -1,0 +1,48 @@
+name: Publish verified installers
+on:
+  workflow_run:
+    workflows: ['Build SnapFlow installers']
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: snapflow-release-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: SnapFlow-Windows-*
+          merge-multiple: true
+          path: downloads
+      - name: Publish the exact tested artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          x64=$(find downloads -maxdepth 1 -name 'SnapFlow-Setup-*-Windows-x64.exe' -print -quit)
+          test -f "$x64"
+          version=$(basename "$x64")
+          version=${version#SnapFlow-Setup-}
+          version=${version%-Windows-x64.exe}
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          arm="downloads/SnapFlow-Setup-$version-Windows-arm64.exe"
+          extension="downloads/SnapFlow-extension-$version.zip"
+          test -f "$arm"
+          test -f "$extension"
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag is already published; existing downloads are left unchanged."
+            exit 0
+          fi
+          gh release create "$tag" "$x64" "$arm" "$extension" --target "$SOURCE_SHA" --title "SnapFlow $tag" --notes 'Windows installers: choose arm64 for Windows on ARM, including Apple Silicon Windows VMs; choose x64 for Intel/AMD PCs. Light theme with black controls, first-launch shortcut setup, capture-on-release or adjustable selection, and attach-and-prepare. SnapFlow never clicks Send and keeps captures until you clear them. The installer registers Native Messaging with Chrome and Edge. The extension is a preview awaiting store publication; Developer mode remains necessary until approval. The x64 installer, installed native connection, uninstall cleanup, and data retention were tested on Windows. ARM hardware execution and live authenticated ChatGPT/Gemini compatibility remain unverified. These installers are unsigned.'
