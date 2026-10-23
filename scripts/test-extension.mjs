@@ -70,6 +70,10 @@ try {
   // A navigation between target selection and send is refused by the extension.
   const stale = job('ChatGPT'); await chatgpt.goto('https://chatgpt.com/c/different');
   await assert.rejects(bridge.prepare(stale), /navigated/);
+  await popup.locator('#disconnect').click(); await waitFor(() => !bridge.connected);
+  assert.equal(await worker.evaluate(async () => (await chrome.storage.local.get('connectionPaused')).connectionPaused), true);
+  await popup.locator('#connect').click(); await waitFor(() => bridge.connected);
+  assert.equal(await worker.evaluate(async () => (await chrome.storage.local.get('connectionPaused')).connectionPaused), false);
   await popup.screenshot({ path: '.test-results/extension.png' });
   console.log('PASS: unpacked MV3 extension loaded in Chrome for Testing; automatic native host connection; real WebSocket bridge; eligible tab discovery; original-byte multi-image upload; prompt insertion; readiness wait; verified prepared drafts without any submission for both adapter fixtures; draft protection; upload error; navigation refusal. Live authenticated websites were not tested.');
 } finally { await context?.close(); await bridge.close(); await rm(profile, { recursive: true, force: true }); }

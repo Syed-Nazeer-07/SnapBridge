@@ -2,6 +2,7 @@ import { ChunkReceiver } from './native-transport';
 import { eligibleUrl, PORT, TabSchema, type SendJob } from '../shared/protocol';
 let socket: WebSocket | undefined;
 let connected = false;
+let paused = false;
 let nativePort: chrome.runtime.Port | undefined;
 let status = 'Open SnapFlow, then pair using the code in Settings.';
 let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -106,15 +107,15 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // Pairing is accepted only from this extension's popup, never from a content script.
   if (sender.url !== chrome.runtime.getURL('popup.html')) return false;
-  if (message?.type === 'connect') { void connectNative().then(() => reply({ ok: true })); return true; }
+  if (message?.type === 'connect') { paused = false; void chrome.storage.local.set({ connectionPaused: false }).then(() => connectNative()).then(() => reply({ ok: true })); return true; }
   if (message?.type === 'status') { reply({ connected, status }); return false; }
-  if (message?.type === 'pair' && typeof message.code === 'string' && /^[a-f0-9]{48}$/.test(message.code)) { void connect(message.code).then(() => reply({ ok: true })); return true; }
-  if (message?.type === 'disconnect') { generation++; nativePort?.disconnect(); nativePort = undefined; socket?.close(); socket = undefined; clearInterval(heartbeat); clearTimeout(reconnect); connected = false; void chrome.storage.local.remove('bridgeToken').then(() => { notify('Disconnected. Pair again to reconnect.'); reply({ ok: true }); }); return true; }
+  if (message?.type === 'pair' && typeof message.code === 'string' && /^[a-f0-9]{48}$/.test(message.code)) { paused = false; void chrome.storage.local.set({ connectionPaused: false }).then(() => connect(message.code)).then(() => reply({ ok: true })); return true; }
+  if (message?.type === 'disconnect') { paused = true; void chrome.storage.local.set({ connectionPaused: true }); generation++; nativePort?.disconnect(); nativePort = undefined; socket?.close(); socket = undefined; clearInterval(heartbeat); clearTimeout(reconnect); connected = false; void chrome.storage.local.remove('bridgeToken').then(() => { notify('Disconnected. Pair again to reconnect.'); reply({ ok: true }); }); return true; }
   return false;
 });
 chrome.tabs.onUpdated.addListener(() => void publishTabs());
 chrome.tabs.onRemoved.addListener(() => void publishTabs());
 chrome.tabs.onCreated.addListener(() => void publishTabs());
 chrome.alarms.create('reconnect', { periodInMinutes: 0.5 });
-chrome.alarms.onAlarm.addListener(() => { if (!connected && !activeJob) void connectNative(); });
-void connectNative();
+chrome.alarms.onAlarm.addListener(() => { if (!paused && !connected && !activeJob) void connectNative(); });
+void chrome.storage.local.get('connectionPaused').then(saved => { paused = saved.connectionPaused === true; if (!paused) void connectNative(); else notify('Disconnected. Click Connect when you are ready.'); });
