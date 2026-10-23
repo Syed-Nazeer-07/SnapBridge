@@ -20,7 +20,7 @@ function setExpanded(value: boolean) { expanded = value; $('panel').hidden = !ex
 function showSettings(value: boolean) {
   if (!state?.settings.setupComplete) return;
   settingsOpen = value; $('settings').hidden = !value; $('panel').hidden = value || !expanded;
-  if (value) { $<HTMLInputElement>('shortcut').value = state.settings.shortcut; $<HTMLInputElement>('always-on-top').checked = state.settings.alwaysOnTop; $<HTMLSelectElement>('capture-mode').value = state.settings.captureMode; }
+  if (value) { $<HTMLInputElement>('shortcut').value = state.settings.shortcut.replace('CommandOrControl', 'Ctrl'); $<HTMLInputElement>('always-on-top').checked = state.settings.alwaysOnTop; $<HTMLSelectElement>('capture-mode').value = state.settings.captureMode; }
   void api.resize(value || expanded);
   if (value) void api.extensionFolder().then(folder => { $<HTMLInputElement>('extension-folder').value = folder; });
 }
@@ -28,10 +28,12 @@ function updateSend() { $<HTMLButtonElement>('send').disabled = !state || !state
 function button(label: string, title: string, click: () => void) { const b = document.createElement('button'); b.textContent = label; b.title = title; b.setAttribute('aria-label', title); b.addEventListener('click', click); return b; }
 function render(next: AppState) {
   if (next.images.length > (state?.images.length || 0)) { settingsOpen = false; $('settings').hidden = true; setExpanded(true); }
-  if (!next.settings.setupComplete) { $('onboarding').hidden = false; $('panel').hidden = true; $('settings').hidden = true; void api.resize(true); if (!state) $<HTMLInputElement>('setup-shortcut').value = next.settings.shortcut; }
+  if (!next.settings.setupComplete) { $('onboarding').hidden = false; $('panel').hidden = true; $('settings').hidden = true; void api.resize(true); if (!state) $<HTMLInputElement>('setup-shortcut').value = next.settings.shortcut.replace('CommandOrControl', 'Ctrl'); }
   else if (!state?.settings.setupComplete) { $('onboarding').hidden = true; setExpanded(true); }
   if (next.error && next.status !== state?.status && !settingsOpen) setExpanded(true);
   state = next;
+  $<HTMLButtonElement>('capture').disabled = !state.settings.setupComplete;
+  $<HTMLButtonElement>('settings-toggle').disabled = !state.settings.setupComplete;
   $('panel').hidden = !state.settings.setupComplete || !expanded || settingsOpen;
   $('count').textContent = String(state.images.length); $('panel-count').textContent = String(state.images.length);
   $('notice').textContent = state.status; $('notice').classList.toggle('error', state.error);

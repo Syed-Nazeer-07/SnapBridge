@@ -5,6 +5,6 @@ const arch=process.env.SNAPFLOW_ARCH||'x64';
 if(!['x64','arm64'].includes(arch))throw new Error('Unsupported native host architecture.');
 const runtime=process.platform==='win32'?`win-${arch}`:'linux-x64';
 const directory=`dist/native-host/${runtime}`;
-const result=spawnSync(process.env.SNAPFLOW_DOTNET||'dotnet',['publish','native-host/SnapFlow.NativeHost.csproj','-c','Release','-r',runtime,'--self-contained',process.platform==='win32'?'true':'false','-o',directory],{stdio:'inherit'});
+const result=spawnSync(process.env.SNAPFLOW_DOTNET||'dotnet',['publish','native-host/SnapFlow.NativeHost.csproj','-c','Release','-r',runtime,'--self-contained',process.platform==='win32'?'true':'false','-o',directory,...(process.platform==='win32'?[]:['-p:PublishSingleFile=false'])],{stdio:'inherit'});
 if(result.error)throw result.error;if(result.status!==0)process.exit(result.status||1);
 await cp('dist/native-config.json',`${directory}/native-config.json`);

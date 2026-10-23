@@ -3,6 +3,7 @@ import path from 'node:path';
 import { readFile, writeFile, mkdir, rename, unlink } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { randomBytes, createHash } from 'node:crypto';
+import { normalizeShortcut } from '../shared/shortcut';
 import { SettingsSchema, type PreparedBatch } from '../shared/protocol';
 import { z } from 'zod';
 import { CaptureQueue } from './queue';
@@ -144,7 +145,7 @@ function registerIPC() {
   });
   handle('settings', async (_event, value) => {
     const next = SettingsSchema.parse(value);
-    if (next.shortcut !== settings.shortcut) {
+    if (normalizeShortcut(next.shortcut, process.platform === 'darwin') !== normalizeShortcut(settings.shortcut, process.platform === 'darwin')) {
       let registered = false;
       try { registered = globalShortcut.register(next.shortcut, () => void capture().catch(e => publish(e.message, true))); } catch {}
       if (!registered) throw new Error('This shortcut is invalid or already in use. Choose another.');

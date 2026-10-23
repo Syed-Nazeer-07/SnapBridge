@@ -1,3 +1,4 @@
+import { normalizeShortcut } from '../shared/shortcut';
 import { describe,it,expect } from 'vitest';
 import { ChunkReceiver } from '../extension/native-transport';
 import { SettingsSchema } from '../shared/protocol';
@@ -20,3 +21,5 @@ describe('native screenshot transport integrity',()=>{
 it('migrates old preferences into first-launch shortcut and capture setup',()=>{
   expect(SettingsSchema.parse({shortcut:'Control+Shift+S',alwaysOnTop:true})).toMatchObject({captureMode:'instant',setupComplete:false});
 });
+
+it('recognizes equivalent default accelerators without treating them as a shortcut conflict',()=>{expect(normalizeShortcut('CommandOrControl+Shift+S')).toBe(normalizeShortcut('Shift+Ctrl+S'));expect(normalizeShortcut('CommandOrControl+S',true)).toBe('Command+S');});
