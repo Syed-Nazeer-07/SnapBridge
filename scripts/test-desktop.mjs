@@ -17,6 +17,10 @@ try {
   page.on('pageerror', e => errors.push(e.message));
   await page.waitForFunction(() => !!window.snapflow);
   await page.locator('#onboarding').waitFor({state:'visible'});
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setBounds({width:600,height:500}));
+  await page.locator('#finish-setup').scrollIntoViewIfNeeded();
+  const setupBounds=await page.locator('#finish-setup').boundingBox();
+  assert.ok(setupBounds.y+setupBounds.height<=await page.evaluate(()=>innerHeight),'Setup remains accessible on a small or scaled display');
   await page.locator('#finish-setup').click();
   await page.locator('#empty').waitFor({ state: 'visible' });
   // A real visible desktop target; desktopCapturer must acquire its pixels through X11.

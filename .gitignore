@@ -5,4 +5,3 @@ release/
 *.log
 native-host/bin/
 native-host/obj/
-installer/generated.nsh

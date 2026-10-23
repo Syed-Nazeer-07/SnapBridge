@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Win32;
 
 internal static class Program
 {
@@ -14,6 +15,11 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--register")
+        {
+            try { await RegisterNativeHost(); return 0; }
+            catch (Exception e) { Console.Error.WriteLine("Browser registration failed: " + e.Message); return 1; }
+        }
         try
         {
             if (args.Length < 1) throw new InvalidOperationException("Missing extension origin.");
@@ -57,6 +63,25 @@ internal static class Program
             // stdout belongs exclusively to the native-messaging protocol, including errors.
             try { await WriteFrame(new { type = "error", error = e is InvalidOperationException ? e.Message : "The native connection was interrupted. Start SnapFlow and reconnect." }, CancellationToken.None); } catch { }
             return 1;
+        }
+    }
+    private static async Task RegisterNativeHost()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Registration is supported by the Windows installer.");
+        using var config = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "native-config.json")));
+        var origins = config.RootElement.GetProperty("origins").EnumerateArray().Select(o => o.GetString()!.TrimEnd('/') + "/").ToArray();
+        if (origins.Length == 0 || origins.Any(o => !System.Text.RegularExpressions.Regex.IsMatch(o, "^chrome-extension://[a-p]{32}/$"))) throw new InvalidOperationException("Invalid extension registration.");
+        var manifestPath = Path.Combine(AppContext.BaseDirectory, "app.snapflow.bridge.json");
+        var manifest = new { name = "app.snapflow.bridge", description = "SnapFlow browser connection", path = Environment.ProcessPath!, type = "stdio", allowed_origins = origins };
+        await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(manifest), new UTF8Encoding(false));
+        foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
+        {
+            using var user = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, view);
+            foreach (var browser in new[] { @"Software\Google\Chrome", @"Software\Microsoft\Edge" })
+            {
+                using var key = user.CreateSubKey(browser + @"\NativeMessagingHosts\app.snapflow.bridge", true);
+                key.SetValue("", manifestPath, RegistryValueKind.String);
+            }
         }
     }
     private static async Task<ClientWebSocket> ConnectDesktop(string origin, string executable, CancellationToken cancel)

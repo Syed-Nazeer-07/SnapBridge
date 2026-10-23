@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $setup = Get-Item 'release/SnapFlow-Setup-*-Windows-x64.exe'
-$installPath = Join-Path $env:RUNNER_TEMP 'SnapFlow Installer Test'
+$installPath = Join-Path $env:RUNNER_TEMP 'SnapFlow Installer Test 日本語'
 function Run-Setup($file, $arguments) {
   $process = Start-Process -FilePath $file -ArgumentList $arguments -PassThru
   if (-not $process.WaitForExit(120000)) { $process.Kill(); throw 'Installer timed out.' }

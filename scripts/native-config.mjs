@@ -7,5 +7,3 @@ if (ids.some(value => !/^[a-p]{32}$/.test(value))) throw new Error('Invalid exte
 const config = { origins: ids.map(value => `chrome-extension://${value}`) };
 await mkdir('dist', { recursive: true });
 await writeFile('dist/native-config.json', JSON.stringify(config));
-const nsisOrigins = JSON.stringify(config.origins.map(origin => `${origin}/`)).replaceAll('"', '$\\"');
-await writeFile('installer/generated.nsh', `!define SNAPFLOW_ALLOWED_ORIGINS '${nsisOrigins}'\n`);

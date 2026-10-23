@@ -1,20 +1,10 @@
-!ifndef BUILD_UNINSTALLER
-!include "StrFunc.nsh"
-${StrRep}
-!endif
-!include "${BUILD_RESOURCES_DIR}/generated.nsh"
-
 !macro customInstall
-  ${StrRep} $0 "$INSTDIR\resources\native-host\SnapFlow.NativeHost.exe" "\" "\\"
-  FileOpen $1 "$INSTDIR\resources\native-host\app.snapflow.bridge.json" w
-  FileWrite $1 '{$\"name$\":$\"app.snapflow.bridge$\",$\"description$\":$\"SnapFlow browser connection$\",$\"path$\":$\"$0$\",$\"type$\":$\"stdio$\",$\"allowed_origins$\":${SNAPFLOW_ALLOWED_ORIGINS}}'
-  FileClose $1
-  SetRegView 32
-  WriteRegStr HKCU "Software\Google\Chrome\NativeMessagingHosts\app.snapflow.bridge" "" "$INSTDIR\resources\native-host\app.snapflow.bridge.json"
-  WriteRegStr HKCU "Software\Microsoft\Edge\NativeMessagingHosts\app.snapflow.bridge" "" "$INSTDIR\resources\native-host\app.snapflow.bridge.json"
-  SetRegView 64
-  WriteRegStr HKCU "Software\Google\Chrome\NativeMessagingHosts\app.snapflow.bridge" "" "$INSTDIR\resources\native-host\app.snapflow.bridge.json"
-  WriteRegStr HKCU "Software\Microsoft\Edge\NativeMessagingHosts\app.snapflow.bridge" "" "$INSTDIR\resources\native-host\app.snapflow.bridge.json"
+  nsExec::ExecToStack '"$INSTDIR\resources\native-host\SnapFlow.NativeHost.exe" --register'
+  Pop $0
+  Pop $1
+  StrCmp $0 "0" +3
+  MessageBox MB_ICONSTOP "SnapFlow could not register its browser connection: $1"
+  Abort
 !macroend
 
 !macro customUnInstall
