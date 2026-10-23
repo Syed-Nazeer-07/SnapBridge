@@ -10,4 +10,4 @@ async function run(args,annotate=false){
   if(code!==0){if(annotate&&process.env.GITHUB_ACTIONS)console.log('::error title=Windows packaging failed::'+(tail.split('\n').filter(line=>/error|warning|exception|invalid|cannot|not found|at .*\.(?:js|mjs)/i.test(line)).join('\n').slice(-8000)||tail.slice(-8000)).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));process.exit(code||1);}
 }
 if(!process.argv.includes('--package-only')){await run(['scripts/build.mjs']);await run(['scripts/build-native.mjs','--windows']);}
-await run([path.resolve('node_modules/electron-builder/cli.js'),'--win','nsis','--'+arch],true);
+await run([path.resolve('node_modules/electron-builder/cli.js'),'--win','nsis','--'+arch,'--publish','never'],true);
