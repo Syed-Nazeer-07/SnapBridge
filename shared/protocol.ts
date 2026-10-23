@@ -8,9 +8,9 @@ export const eligibleUrl = (url: string): boolean => {
 export const TabSchema = z.object({ id: z.number().int().nonnegative(), title: z.string().max(240), url: z.string().max(2048).refine(eligibleUrl), provider: z.enum(['ChatGPT', 'Gemini']) }).strict();
 export type TargetTab = z.infer<typeof TabSchema>;
 export const ClientMessage = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('pair'), code: z.string().regex(/^[a-f0-9]{48}$/) }).strict(),
-  z.object({ type: z.literal('native-auth'), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
-  z.object({ type: z.literal('auth'), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+  z.object({ type: z.literal('pair'), protocol: z.literal(2), code: z.string().regex(/^[a-f0-9]{48}$/) }).strict(),
+  z.object({ type: z.literal('native-auth'), protocol: z.literal(2), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+  z.object({ type: z.literal('auth'), protocol: z.literal(2), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   z.object({ type: z.literal('tabs'), tabs: z.array(TabSchema).max(100) }).strict(),
   z.object({ type: z.literal('result'), jobId: z.string().uuid(), ok: z.boolean(), outcome: z.literal('prepared').optional(), error: z.string().max(1000).optional(), evidence: z.string().max(500).optional() }).strict(),
   z.object({ type: z.literal('progress'), jobId: z.string().uuid(), message: z.string().max(300) }).strict(),

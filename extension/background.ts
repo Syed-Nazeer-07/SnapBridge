@@ -86,7 +86,7 @@ async function connect(code?: string) {
   if (!code && !bridgeToken) { notify('Paste the pairing code from SnapFlow Settings.'); return; }
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}/bridge`); socket = ws;
   notify('Connecting to SnapFlow…');
-  ws.addEventListener('open', () => ws.send(JSON.stringify(code ? { type: 'pair', code } : { type: 'auth', token: bridgeToken })));
+  ws.addEventListener('open', () => ws.send(JSON.stringify(code ? { type: 'pair', protocol: 2, code } : { type: 'auth', protocol: 2, token: bridgeToken })));
   ws.addEventListener('message', event => {
     if (generation !== currentGeneration) return;
     void handleIncoming(JSON.parse(event.data)).catch(e => notify(e.message || 'Bridge message failed.'));

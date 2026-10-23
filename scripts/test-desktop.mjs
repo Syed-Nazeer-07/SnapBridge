@@ -70,7 +70,7 @@ try {
     if (msg.type === 'prepare') { jobs++; assert.equal(msg.images.length, 2); assert.equal(msg.prompt, 'Explain both captures'); socket.send(JSON.stringify(mode === 'fail' ? { type: 'result', jobId: msg.jobId, ok: false, error: 'Upload rejected by test provider. Queue retained.' } : { type: 'result', jobId: msg.jobId, ok: true, outcome: 'prepared', evidence: 'Test bridge acknowledged submission.' })); }
   });
   await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
-  socket.send(JSON.stringify({ type: 'pair', code }));
+  socket.send(JSON.stringify({ type: 'pair', protocol: 2, code }));
   await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).tabs.length === 1);
   await page.locator('#target').selectOption('42');
   socket.send(JSON.stringify({ type: 'tabs', tabs: [{ id: 42, provider: 'ChatGPT', title: 'Different conversation', url: 'https://chatgpt.com/c/different' }] }));

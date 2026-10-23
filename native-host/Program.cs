@@ -41,7 +41,7 @@ internal static class Program
             {
                 var token = currentAuth.RootElement.GetProperty("token").GetString()!;
                 if (token.Length != 64 || token.Any(c => !Uri.IsHexDigit(c))) throw new InvalidOperationException("Invalid desktop authentication.");
-                await socket.SendAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "native-auth", token })), WebSocketMessageType.Text, true, connectTimeout.Token);
+                await socket.SendAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "native-auth", protocol = 2, token })), WebSocketMessageType.Text, true, connectTimeout.Token);
             }
             using var stop = new CancellationTokenSource();
             var input = BrowserToDesktop(socket, stop.Token);

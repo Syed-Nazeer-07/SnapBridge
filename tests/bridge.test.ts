@@ -15,7 +15,7 @@ function client(customOrigin = origin) {
   const waitFor = async (type: string) => { for (let i = 0; i < 100; i++) { const index = messages.findIndex(m => m.type === type); if (index >= 0) return messages.splice(index, 1)[0]; await new Promise(r => setTimeout(r, 10)); } throw new Error(`No ${type} message`); };
   return { ws, waitFor, open: new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); }) };
 }
-async function paired() { const c = client(); await c.open; c.ws.send(JSON.stringify({ type: 'pair', code: bridge.code })); const pair = await c.waitFor('paired'); await c.waitFor('ready'); return { ...c, token: pair.token }; }
+async function paired() { const c = client(); await c.open; c.ws.send(JSON.stringify({ type: 'pair', protocol: 2, code: bridge.code })); const pair = await c.waitFor('paired'); await c.waitFor('ready'); return { ...c, token: pair.token }; }
 afterEach(async () => { clients.forEach(c => c.terminate()); clients = []; if (bridge) await bridge.close(); });
 describe('authenticated loopback browser bridge', () => {
   it('accepts extension origins and rejects web origins, lookalikes, and insecure AI URLs', () => {
@@ -34,12 +34,12 @@ describe('authenticated loopback browser bridge', () => {
   it('pairs once, rotates the code, then accepts token authentication', async () => {
     await start(); const code = bridge.code; const c = await paired();
     expect(bridge.code).not.toBe(code); expect(bridge.connected).toBe(true);
-    const second = client(); await second.open; second.ws.send(JSON.stringify({ type: 'auth', token: c.token })); await second.waitFor('ready');
+    const second = client(); await second.open; second.ws.send(JSON.stringify({ type: 'auth', protocol: 2, token: c.token })); await second.waitFor('ready');
     second.ws.send(JSON.stringify({ type: 'tabs', tabs: [tab] })); await new Promise(r => setTimeout(r, 20)); expect(bridge.tabs).toEqual([tab]);
   });
   it('pins authentication to the paired extension origin', async () => {
     await start(); const c = await paired(); const other = client(`chrome-extension://${'b'.repeat(32)}`); await other.open;
-    other.ws.send(JSON.stringify({ type: 'auth', token: c.token })); await other.waitFor('error');
+    other.ws.send(JSON.stringify({ type: 'auth', protocol: 2, token: c.token })); await other.waitFor('error');
   });
   it('rejects false success without submission evidence and prevents concurrent sends', async () => {
     await start(); const c = await paired(); const pending = bridge.prepare({ tab, images: [], prompt: 'hello' });
@@ -58,3 +58,5 @@ describe('authenticated loopback browser bridge', () => {
     const failure = expect(pending).rejects.toThrow('Check the conversation'); c.ws.close(); await failure;
   });
 });
+
+it('refuses an older extension protocol before accepting a connection', async () => { await start(); const c=client();await c.open;c.ws.send(JSON.stringify({type:'pair',code:bridge.code}));await c.waitFor('error');expect(bridge.connected).toBe(false); });

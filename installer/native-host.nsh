@@ -1,5 +1,7 @@
+!ifndef BUILD_UNINSTALLER
 !include "StrFunc.nsh"
 ${StrRep}
+!endif
 !include "${BUILD_RESOURCES_DIR}/generated.nsh"
 
 !macro customInstall
