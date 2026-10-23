@@ -1,0 +1,63 @@
+{
+  "name": "snapflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capture locally. Send to your existing AI conversation.",
+  "author": "SnapFlow",
+  "license": "MIT",
+  "main": "dist/desktop/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "start": "npm run build && electron .",
+    "test": "vitest run",
+    "test:desktop": "node scripts/test-desktop.mjs",
+    "test:extension": "node scripts/test-extension.mjs",
+    "dist:win": "npm run build && electron-builder --win zip --x64",
+    "postinstall": "node scripts/install-electron.mjs",
+    "test:adapters": "node scripts/test-adapters.mjs"
+  },
+  "dependencies": {
+    "ws": "8.22.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.0.326",
+    "@types/node": "22.19.7",
+    "@types/ws": "8.18.1",
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.25.12",
+    "playwright": "1.64.1",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  },
+  "build": {
+    "appId": "app.snapflow.desktop",
+    "productName": "SnapFlow",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/desktop/**",
+      "dist/renderer/**",
+      "assets/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "zip",
+      "icon": "assets/icon.ico",
+      "signExecutable": false
+    },
+    "artifactName": "SnapFlow-${version}-Windows-${arch}.${ext}",
+    "extraResources": [
+      {
+        "from": "dist/extension",
+        "to": "browser-extension"
+      }
+    ]
+  },
+  "engines": {
+    "node": ">=24.5.0"
+  }
+}

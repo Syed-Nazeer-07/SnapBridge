@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "SnapFlow Companion",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "description": "Send local SnapFlow captures to the conversation you choose.",
+  "permissions": ["tabs", "storage", "scripting", "alarms"],
+  "host_permissions": ["https://chatgpt.com/*", "https://gemini.google.com/*", "http://127.0.0.1:47831/*"],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_popup": "popup.html", "default_title": "SnapFlow"},
+  "content_scripts": [{"matches": ["https://chatgpt.com/*", "https://gemini.google.com/*"], "js": ["content.js"], "run_at": "document_idle"}],
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src ws://127.0.0.1:47831"}
+}

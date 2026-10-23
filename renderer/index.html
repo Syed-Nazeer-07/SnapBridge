@@ -1,0 +1,32 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'"><title>SnapFlow</title><link rel="stylesheet" href="style.css"></head>
+<body><main class="app">
+  <header class="drag"><div class="brand"><span class="brand-icon">▣</span> SNAPFLOW <span class="local">LOCAL FIRST</span></div><div class="window-actions no-drag"><button id="hide" class="icon" title="Minimize to tray" aria-label="Minimize to tray">−</button></div></header>
+  <nav class="toolbar" aria-label="Capture toolbar">
+    <button id="capture" class="capture"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H4a1 1 0 0 0-1 1v4m13-5h4a1 1 0 0 1 1 1v4M3 16v4a1 1 0 0 0 1 1h4m8 0h4a1 1 0 0 0 1-1v-4M7 12h10m-5-5v10"/></svg><span>Capture</span><kbd id="shortcut-hint">⌃ ⇧ S</kbd></button>
+    <button id="expand" class="queue-toggle" aria-expanded="false" title="Expand captures"><span id="count">0</span><span id="chevron">▾</span></button>
+    <span class="divider"></span>
+    <div class="target-wrap"><span id="connection-dot" class="dot"></span><select id="target" aria-label="Target conversation"><option value="">Connect browser</option></select></div>
+    <button id="send" class="primary" disabled><span id="send-label">Send to AI</span> <span aria-hidden="true">↗</span></button>
+    <button id="settings-toggle" class="icon settings-button" aria-label="Settings" title="Settings">⚙</button>
+  </nav>
+  <section id="panel" hidden>
+    <div class="panel-heading"><div><h1>Your captures <span id="panel-count">0</span></h1><p>Collect a little context. Send it in one go.</p></div><button id="clear" class="text-button" disabled>Clear queue</button></div>
+    <div id="gallery" class="gallery" aria-label="Screenshot queue"></div>
+    <div id="empty" class="empty"><div class="empty-icon">⌗</div><h2>A little more context goes a long way.</h2><p>Capture a region to get started.<br>Your screenshots stay local until you send.</p><button id="empty-capture" class="text-button">Take your first capture ↗</button></div>
+    <label class="prompt-label" for="prompt">ADD A MESSAGE <span>optional</span></label>
+    <textarea id="prompt" placeholder="What would you like to ask about these captures?" maxlength="20000" rows="3"></textarea>
+    <div class="meta"><span id="storage">0 MB / 128 MB local queue</span><span>Ctrl + Enter to send</span></div>
+    <div id="notice" class="notice" role="status" aria-live="polite"></div>
+    <div class="footer"><button id="fallback" class="text-button" title="Save original PNGs and copy your message for manual attachment">Export for manual send</button><span>Only your selected conversation receives captures.</span></div>
+  </section>
+  <section id="settings" class="settings-panel" hidden>
+    <div class="panel-heading"><div><h1>Make it your flow</h1><p>One shortcut. Your existing AI conversation.</p></div><button id="settings-close" class="icon" aria-label="Close settings">×</button></div>
+    <label class="field-label" for="shortcut">Capture shortcut</label><input id="shortcut" placeholder="Click and press a shortcut" readonly><p class="help">Click the field and press a key with Ctrl, Alt, or Shift.</p>
+    <label class="check"><input id="always-on-top" type="checkbox"> Keep toolbar always on top</label>
+    <button id="save-settings" class="primary">Save preferences</button>
+    <div class="pair-section"><h2>Connect Chrome or Edge</h2><ol><li>Open your browser’s Extensions page and enable Developer mode.</li><li>Choose <strong>Load unpacked</strong> and select the companion extension folder shown below.</li><li>Open the SnapFlow extension, paste this pairing code, and connect.</li></ol><label class="field-label" for="extension-folder">Companion extension folder</label><input id="extension-folder" readonly><button id="reveal-extension" class="text-button">Open extension folder ↗</button><label class="field-label" for="pair-code">Pairing code · select and copy</label><input id="pair-code" readonly spellcheck="false"><p class="help" id="pair-status">Only one paired browser is active at a time. Pairing a new browser replaces the previous connection.</p><button id="unpair" class="text-button danger">Disconnect paired browser</button></div>
+    <div class="settings-footer"><span id="settings-status" role="status"></span><button id="quit" class="text-button">Quit SnapFlow</button></div>
+  </section>
+</main>
+<dialog id="preview"><div class="preview-heading"><span id="preview-title"></span><button id="preview-close" class="icon" aria-label="Close preview">×</button></div><img id="preview-image" alt="Full-quality screenshot preview"></dialog>
+<script src="app.js"></script></body></html>

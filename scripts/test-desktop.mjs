@@ -1,0 +1,109 @@
+import { _electron as electron } from 'playwright';
+import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { WebSocket } from 'ws';
+const root = process.cwd();
+const data = await mkdtemp(path.join(tmpdir(), 'snapflow-desktop-'));
+let app;
+let socket;
+const errors = [];
+const launch = () => electron.launch({ args: ['--no-sandbox', '--disable-gpu', root], env: { ...process.env, SNAPFLOW_TEST_DATA: data, DISPLAY: process.env.DISPLAY || ':99' } });
+async function waitFor(fn, timeout = 15_000) { const end = Date.now() + timeout; while (Date.now() < end) { const v = await fn(); if (v) return v; await new Promise(r => setTimeout(r, 100)); } throw new Error('Readiness timeout'); }
+try {
+  app = await launch();
+  let page = await app.firstWindow();
+  page.on('pageerror', e => errors.push(e.message));
+  await page.waitForFunction(() => !!window.snapflow);
+  await page.locator('#expand').click();
+  await page.locator('#empty').waitFor({ state: 'visible' });
+  // A real visible desktop target; desktopCapturer must acquire its pixels through X11.
+  await app.evaluate(async ({ BrowserWindow }) => {
+    const fixture = new BrowserWindow({ x: 0, y: 0, width: 1440, height: 1000, frame: false, show: true, webPreferences: { nodeIntegration: false, contextIsolation: true } });
+    await fixture.loadURL('data:text/html,<body style="margin:0;background:%233c536d;color:white;font:48px sans-serif"><div style="padding:150px">SCREEN CAPTURE TEST</div></body>');
+    (globalThis).testFixture = fixture;
+  });
+  async function capture(x, y, width, height) {
+    const before = (await page.evaluate(() => window.snapflow.state())).images.length;
+    await page.evaluate(() => window.snapflow.capture());
+    const overlay = await waitFor(async () => { for (const win of app.windows()) if (win.url().endsWith('capture.html')) return win; });
+    await overlay.locator('#screen').evaluate(image => image.decode());
+    await overlay.mouse.move(x, y); await overlay.mouse.down(); await overlay.mouse.move(x + width, y + height, { steps: 6 }); await overlay.mouse.up();
+    await overlay.locator('#confirm').click();
+    await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).images.length === before + 1);
+    return (await page.evaluate(() => window.snapflow.state())).images.at(-1);
+  }
+  await page.evaluate(() => window.snapflow.capture());
+  const canceledOverlay = await waitFor(async () => app.windows().find(w => w.url().endsWith('capture.html')));
+  await canceledOverlay.keyboard.press('Escape').catch(e => { if (!/has been closed/.test(e.message)) throw e; });
+  await waitFor(() => !app.windows().some(w => w.url().endsWith('capture.html')));
+  assert.equal((await page.evaluate(() => window.snapflow.state())).images.length, 0, 'Cancel adds no capture');
+  const first = await capture(100, 300, 320, 180);
+  assert.equal(first.width, 320); assert.equal(first.height, 180);
+  const original = await page.evaluate(id => window.snapflow.preview(id), first.id);
+  const pixels = await app.evaluate(({ nativeImage }, url) => [...nativeImage.createFromDataURL(url).getBitmap().subarray(0, 4)], original);
+  assert.deepEqual(pixels, [109, 83, 60, 255], 'Captured real desktop pixels at original resolution');
+  await capture(440, 350, 280, 200);
+  await capture(800, 400, 240, 160);
+  assert.equal(await page.locator('.card').count(), 3);
+  await page.locator('.image-button').first().click(); await page.locator('#preview[open]').waitFor();
+  assert.equal(await page.locator('#preview-image').evaluate(img => img.naturalWidth), 320);
+  await page.locator('#preview-close').click();
+  const initialOrder = (await page.evaluate(() => window.snapflow.state())).images.map(i => i.id);
+  await page.locator('.card').first().dragTo(page.locator('.card').last());
+  await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).images.at(-1).id === initialOrder[0]);
+  const before = (await page.evaluate(() => window.snapflow.state())).images.map(i => i.id);
+  await page.locator('.card').nth(1).getByRole('button', { name: 'Move capture earlier' }).click();
+  await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).images[0].id === before[1]);
+  await page.locator('.card').last().getByRole('button', { name: 'Remove capture', exact: true }).click();
+  await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).images.length === 2);
+  // Pair a real authenticated bridge client and exercise failed/successful transfer lifecycle.
+  const code = (await page.evaluate(() => window.snapflow.state())).pairingCode;
+  socket = new WebSocket('ws://127.0.0.1:47831/bridge', { origin: `chrome-extension://${'a'.repeat(32)}` });
+  let mode = 'fail'; let jobs = 0;
+  socket.on('message', raw => {
+    const msg = JSON.parse(String(raw));
+    if (msg.type === 'ready') socket.send(JSON.stringify({ type: 'tabs', tabs: [{ id: 42, provider: 'ChatGPT', title: 'Bridge test', url: 'https://chatgpt.com/c/test' }] }));
+    if (msg.type === 'send') { jobs++; assert.equal(msg.images.length, 2); assert.equal(msg.prompt, 'Explain both captures'); socket.send(JSON.stringify(mode === 'fail' ? { type: 'result', jobId: msg.jobId, ok: false, error: 'Upload rejected by test provider. Queue retained.' } : { type: 'result', jobId: msg.jobId, ok: true, evidence: 'Test bridge acknowledged submission.' })); }
+  });
+  await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
+  socket.send(JSON.stringify({ type: 'pair', code }));
+  await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).tabs.length === 1);
+  await page.locator('#target').selectOption('42');
+  socket.send(JSON.stringify({ type: 'tabs', tabs: [{ id: 42, provider: 'ChatGPT', title: 'Different conversation', url: 'https://chatgpt.com/c/different' }] }));
+  await waitFor(async () => await page.locator('#target').inputValue() === '');
+  assert.equal(await page.locator('#send').isDisabled(), true, 'Navigated conversation requires explicit reselection');
+  socket.send(JSON.stringify({ type: 'tabs', tabs: [{ id: 42, provider: 'ChatGPT', title: 'Bridge test', url: 'https://chatgpt.com/c/test' }] }));
+  await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).tabs[0].url.endsWith('/test'));
+  await page.locator('#target').selectOption('42'); await page.locator('#prompt').fill('Explain both captures');
+  await page.locator('#send').click();
+  await waitFor(async () => !(await page.evaluate(() => window.snapflow.state())).busy);
+  assert.equal((await page.evaluate(() => window.snapflow.state())).images.length, 2, 'Failure retains screenshots');
+  assert.equal(await page.locator('#prompt').inputValue(), 'Explain both captures', 'Failure retains prompt');
+  const exportDirectory = path.join(data, 'manual-export'); await mkdir(exportDirectory);
+  await app.evaluate(({ dialog }, folder) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] }); }, exportDirectory);
+  const exported = await page.evaluate(() => window.snapflow.fallback(42, 'Manual fallback prompt'));
+  const images = (await page.evaluate(() => window.snapflow.state())).images;
+  for (const item of images) { const bytes = await readFile(path.join(exported, item.name)); const original = await page.evaluate(id => window.snapflow.preview(id), item.id); assert.deepEqual(bytes, Buffer.from(original.split(',')[1], 'base64')); }
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), 'Manual fallback prompt');
+  assert.equal(images.length, 2, 'Manual fallback preserves queue');
+  mode = 'success'; await page.locator('#send').click();
+  await waitFor(async () => !(await page.evaluate(() => window.snapflow.state())).images.length);
+  await waitFor(async () => (await page.locator('#prompt').inputValue()) === '');
+  assert.equal(jobs, 2);
+  // Capture again, restart, verify retained original rather than a fake renderer-only queue.
+  await capture(100, 300, 320, 180);
+  const retained = (await page.evaluate(() => window.snapflow.state())).images[0].id;
+  socket.close(); socket = undefined;
+  await app.close(); app = await launch(); page = await app.firstWindow();
+  await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).images.length === 1);
+  assert.equal((await page.evaluate(() => window.snapflow.state())).images[0].id, retained);
+  await page.locator('#settings-toggle').click();
+  await page.locator('#shortcut').focus(); await page.keyboard.press('Control+Alt+K'); await page.locator('#save-settings').click();
+  await waitFor(async () => (await page.evaluate(() => window.snapflow.state())).settings.shortcut === 'Control+Alt+K');
+  await page.locator('#settings-close').click(); await page.locator('#expand').click();
+  await mkdir('.test-results', { recursive: true }); await page.screenshot({ path: '.test-results/desktop.png' });
+  assert.deepEqual(errors, []);
+  console.log('PASS: real region capture + pixel/size check; cancel; preview; drag and button reorder; delete; manual export + clipboard; authenticated bridge; failed-send retention; confirmed-send clearing; prompt retention; restart persistence; configurable shortcut.');
+} finally { socket?.terminate(); if (app) await app.close(); await rm(data, { recursive: true, force: true }); }

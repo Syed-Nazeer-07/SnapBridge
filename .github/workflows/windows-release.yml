@@ -1,0 +1,47 @@
+name: Build Windows download
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SnapFlow-Windows-x64
+          path: release/SnapFlow-*-Windows-x64.zip
+          if-no-files-found: error
+      - name: Publish Windows ZIP
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Get-Item 'release/SnapFlow-*-Windows-x64.zip'
+          if (@($archive).Count -ne 1) { throw 'Expected exactly one Windows archive.' }
+          gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG $archive.FullName --clobber
+          } else {
+            gh release create $env:RELEASE_TAG $archive.FullName --title "SnapFlow $env:RELEASE_TAG" --notes 'Extract the ZIP and launch SnapFlow.exe. Load resources/browser-extension as an unpacked Chrome or Edge extension and pair it from desktop Settings. This build is unsigned. Live authenticated website submission and multi-monitor hardware still require manual validation.'
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release publication failed.' }
